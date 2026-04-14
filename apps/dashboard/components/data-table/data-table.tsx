@@ -21,7 +21,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
   type CSSProperties,
 } from "react";
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
@@ -29,19 +28,18 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "@/components/animate-ui/components/radix/radio-group";
-import { buttonClasses, cn, Field, TextInput } from "@/components/ui";
-import { SelectInput } from "@/components/select-input";
+import { buttonClasses, cn } from "@/components/ui";
 import { useIsMobileViewport } from "@/components/use-is-mobile-viewport";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type {
   DataTableColumn,
   DataTableProps,
   DataTableSort,
-  SavedDataTableProfile,
 } from "@/components/data-table/types";
 import {
   buildGroupedRows,
@@ -49,50 +47,6 @@ import {
   normalizeFilterState,
   normalizeLayoutState,
 } from "@/components/data-table/utils";
-
-function getProfileById<TState>(
-  profiles: SavedDataTableProfile<TState>[],
-  profileId: string,
-) {
-  return profiles.find((profile) => profile.id === profileId) ?? null;
-}
-
-function parseProfileShareInput(
-  rawValue: string,
-  shareableUsers: DataTableProps<{ id: string }>["shareableUsers"],
-) {
-  const trimmedValue = rawValue.trim();
-  if (!trimmedValue || trimmedValue.toLowerCase() === "private") {
-    return {
-      isOrgShared: false,
-      sharedWithUserIds: [] as string[],
-    };
-  }
-
-  if (trimmedValue.toLowerCase() === "org") {
-    return {
-      isOrgShared: true,
-      sharedWithUserIds: [] as string[],
-    };
-  }
-
-  const requestedEmails = trimmedValue
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  const emailToUserId = new Map(
-    shareableUsers.map((user) => [user.email.toLowerCase(), user.id]),
-  );
-  const sharedWithUserIds = requestedEmails.flatMap((email) => {
-    const userId = emailToUserId.get(email);
-    return userId ? [userId] : [];
-  });
-
-  return {
-    isOrgShared: false,
-    sharedWithUserIds,
-  };
-}
 
 function StickyHeaderLabel({
   align = "left",
@@ -196,21 +150,12 @@ export function DataTable<TData extends { id: string }>({
   defaultFilters,
   defaultLayout,
   emptyState,
-  filterProfiles,
-  hasMore,
   kanban,
-  layoutProfiles,
-  onDeleteProfile,
-  onSaveFilterProfile,
-  onSaveLayoutProfile,
   onTableStateChange,
   renderCardActions,
-  resourceKey,
   rows,
-  searchPlaceholder,
   selection,
   status,
-  shareableUsers,
 }: DataTableProps<TData>) {
   const isMobileViewport = useIsMobileViewport();
   const [filterState, setFilterState] = useState(() =>
@@ -219,12 +164,8 @@ export function DataTable<TData extends { id: string }>({
   const [layoutState, setLayoutState] = useState(() =>
     normalizeLayoutState(columns, defaultLayout),
   );
-  const [selectedFilterProfileId, setSelectedFilterProfileId] = useState("");
-  const [selectedLayoutProfileId, setSelectedLayoutProfileId] = useState("");
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const [isLayoutEditorOpen, setIsLayoutEditorOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sortMenuScrollRef = useRef<HTMLDivElement | null>(null);
@@ -472,18 +413,6 @@ export function DataTable<TData extends { id: string }>({
   );
 
   const sortableColumns = orderedColumns.filter((column) => column.sortKey);
-  const filterableColumns = orderedColumns.filter(
-    (column) => (column.filterOptions?.length ?? 0) > 0,
-  );
-  const groupableColumns = orderedColumns.filter((column) => column.getGroupValue);
-  const selectedLayoutProfile = getProfileById(
-    layoutProfiles,
-    selectedLayoutProfileId,
-  );
-  const selectedFilterProfile = getProfileById(
-    filterProfiles,
-    selectedFilterProfileId,
-  );
   const totalTableWidth = visibleLeafColumns.reduce(
     (sum, column) => sum + column.getSize(),
     0,
@@ -642,207 +571,10 @@ export function DataTable<TData extends { id: string }>({
     });
   }
 
-  function setFilterValue(columnId: string, value: string) {
-    setFilterState((current) => {
-      const nextFilters = current.columnFilters.filter(
-        (filter) => filter.columnId !== columnId,
-      );
-
-      if (value.trim()) {
-        nextFilters.push({
-          columnId,
-          value,
-        });
-      }
-
-      return normalizeFilterState({
-        ...current,
-        columnFilters: nextFilters,
-      });
-    });
-  }
-
   function resetToDefault() {
-    setSelectedFilterProfileId("");
-    setSelectedLayoutProfileId("");
     setRowSelection({});
     setFilterState(normalizeFilterState(defaultFilters));
     setLayoutState(normalizeLayoutState(columns, defaultLayout));
-    setFeedbackMessage("Reset to the system default view.");
-    setErrorMessage(null);
-  }
-
-  function applyLayoutProfile(profileId: string) {
-    if (!profileId) {
-      setSelectedLayoutProfileId("");
-      setLayoutState(normalizeLayoutState(columns, defaultLayout));
-      return;
-    }
-
-    const profile = getProfileById(layoutProfiles, profileId);
-    if (!profile) {
-      return;
-    }
-
-    setSelectedLayoutProfileId(profileId);
-    setLayoutState(normalizeLayoutState(columns, profile.state));
-    setFeedbackMessage(`Applied layout profile "${profile.name}".`);
-    setErrorMessage(null);
-  }
-
-  function applyFilterProfile(profileId: string) {
-    if (!profileId) {
-      setSelectedFilterProfileId("");
-      setFilterState(normalizeFilterState(defaultFilters));
-      return;
-    }
-
-    const profile = getProfileById(filterProfiles, profileId);
-    if (!profile) {
-      return;
-    }
-
-    setSelectedFilterProfileId(profileId);
-    setFilterState(normalizeFilterState(profile.state));
-    setFeedbackMessage(`Applied filter profile "${profile.name}".`);
-    setErrorMessage(null);
-  }
-
-  function promptForProfileSave(
-    profileKind: "filter" | "layout",
-    currentName: string | undefined,
-  ) {
-    const nextName = window.prompt(
-      `Name this ${profileKind} profile`,
-      currentName ?? "",
-    );
-    if (!nextName) {
-      return null;
-    }
-
-    const nextShareInput = window.prompt(
-      "Share with 'private', 'org', or comma-separated teammate emails",
-      "private",
-    );
-    if (nextShareInput === null) {
-      return null;
-    }
-
-    return {
-      name: nextName.trim(),
-      ...parseProfileShareInput(nextShareInput, shareableUsers),
-    };
-  }
-
-  function saveNewProfile(profileKind: "filter" | "layout") {
-    const promptValues = promptForProfileSave(profileKind, "");
-    if (!promptValues) {
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        const profileId =
-          profileKind === "layout"
-            ? await onSaveLayoutProfile({
-                isOrgShared: promptValues.isOrgShared,
-                name: promptValues.name,
-                sharedWithUserIds: promptValues.sharedWithUserIds,
-                state: normalizedLayoutState,
-              })
-            : await onSaveFilterProfile({
-                isOrgShared: promptValues.isOrgShared,
-                name: promptValues.name,
-                sharedWithUserIds: promptValues.sharedWithUserIds,
-                state: normalizedFilterState,
-              });
-
-        if (profileKind === "layout") {
-          setSelectedLayoutProfileId(profileId);
-        } else {
-          setSelectedFilterProfileId(profileId);
-        }
-        setFeedbackMessage(`Saved ${profileKind} profile "${promptValues.name}".`);
-        setErrorMessage(null);
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : `Could not save ${profileKind} profile.`);
-      }
-    });
-  }
-
-  function updateCurrentProfile(profileKind: "filter" | "layout") {
-    const currentProfile =
-      profileKind === "layout" ? selectedLayoutProfile : selectedFilterProfile;
-    if (!currentProfile?.isEditable) {
-      return;
-    }
-
-    const promptValues = promptForProfileSave(profileKind, currentProfile.name);
-    if (!promptValues) {
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        if (profileKind === "layout") {
-          await onSaveLayoutProfile({
-            isOrgShared: promptValues.isOrgShared,
-            name: promptValues.name,
-            profileId: currentProfile.id,
-            sharedWithUserIds: promptValues.sharedWithUserIds,
-            state: normalizedLayoutState,
-          });
-        } else {
-          await onSaveFilterProfile({
-            isOrgShared: promptValues.isOrgShared,
-            name: promptValues.name,
-            profileId: currentProfile.id,
-            sharedWithUserIds: promptValues.sharedWithUserIds,
-            state: normalizedFilterState,
-          });
-        }
-
-        setFeedbackMessage(`Updated ${profileKind} profile "${promptValues.name}".`);
-        setErrorMessage(null);
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : `Could not update ${profileKind} profile.`);
-      }
-    });
-  }
-
-  function deleteCurrentProfile(profileKind: "filter" | "layout") {
-    const currentProfile =
-      profileKind === "layout" ? selectedLayoutProfile : selectedFilterProfile;
-    if (!currentProfile?.isEditable) {
-      return;
-    }
-
-    const isConfirmed = window.confirm(
-      `Delete ${profileKind} profile "${currentProfile.name}"?`,
-    );
-    if (!isConfirmed) {
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        await onDeleteProfile({
-          profileId: currentProfile.id,
-          profileKind,
-        });
-        if (profileKind === "layout") {
-          setSelectedLayoutProfileId("");
-          setLayoutState(normalizeLayoutState(columns, defaultLayout));
-        } else {
-          setSelectedFilterProfileId("");
-          setFilterState(normalizeFilterState(defaultFilters));
-        }
-        setFeedbackMessage(`Deleted ${profileKind} profile "${currentProfile.name}".`);
-        setErrorMessage(null);
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : `Could not delete ${profileKind} profile.`);
-      }
-    });
   }
 
   function getCellStyle(columnId: string): CSSProperties {
@@ -876,11 +608,11 @@ export function DataTable<TData extends { id: string }>({
 
     return (
       <div className="overflow-hidden rounded border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_92%,white)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_90%,white)] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_90%,white)] px-4 py-1">
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="rounded px-3 py-2 text-sm font-medium text-[var(--panel-ink)] transition hover:bg-[color-mix(in_srgb,var(--accent-soft)_60%,white)]"
+              className="rounded px-3 py-1 text-sm font-medium text-[var(--panel-ink)] transition hover:bg-[color-mix(in_srgb,var(--accent-soft)_60%,white)]"
             >
               All
             </button>
@@ -894,7 +626,7 @@ export function DataTable<TData extends { id: string }>({
                 size: "sm",
                 variant: "ghost",
                 className:
-                  "min-h-9 min-w-9 rounded border-transparent px-0 text-[var(--panel-ink)] hover:border-transparent hover:bg-[color-mix(in_srgb,var(--accent-soft)_55%,white)] hover:text-[var(--panel-ink)]",
+                  "min-h-8 min-w-8 rounded border-transparent px-0 text-[var(--panel-ink)] hover:border-transparent hover:bg-[color-mix(in_srgb,var(--accent-soft)_55%,white)] hover:text-[var(--panel-ink)]",
               })}
             >
               <ListFilterPlus className="h-4 w-4" />
@@ -909,7 +641,7 @@ export function DataTable<TData extends { id: string }>({
                     size: "sm",
                     variant: "secondary",
                     className:
-                      "min-h-9 min-w-9 rounded border-[color-mix(in_srgb,var(--line)_80%,white)] px-0",
+                      "min-h-8 min-w-8 rounded border-[color-mix(in_srgb,var(--line)_80%,white)] px-0",
                   })}
                 >
                   <SortTriggerIcon className="h-4 w-4" />
@@ -1033,7 +765,7 @@ export function DataTable<TData extends { id: string }>({
                         <th
                           key={header.id}
                           className={cn(
-                            "overflow-hidden border-b border-[var(--line)] px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-muted)]",
+                            "overflow-hidden border-b border-[var(--line)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ink-muted)]",
                             column?.align === "center" && "text-center",
                             column?.align === "left" && "text-left",
                             column?.align === "right" && "text-right",
@@ -1321,379 +1053,312 @@ export function DataTable<TData extends { id: string }>({
     );
   }
 
-  return (
-    <div className="grid gap-5">
-      <section className="rounded-[32px] border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_88%,white)] p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-[var(--panel-ink)]">
-              {resourceKey.charAt(0).toUpperCase()}
-              {resourceKey.slice(1)} workspace
-            </p>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">
-              Virtualized list and kanban views with saved filters and layouts.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={buttonClasses({
-                size: "sm",
-                variant:
-                  normalizedLayoutState.viewMode === "list" ? "primary" : "secondary",
-              })}
-              onClick={() =>
-                setLayoutState((current) => ({
-                  ...current,
-                  viewMode: "list",
-                }))
-              }
-            >
-              List view
-            </button>
-            <button
-              type="button"
-              className={buttonClasses({
-                size: "sm",
-                variant:
-                  normalizedLayoutState.viewMode === "kanban"
-                    ? "primary"
-                    : "secondary",
-              })}
-              onClick={() =>
-                setLayoutState((current) =>
-                  normalizeLayoutState(columns, {
-                    ...current,
-                    kanbanLaneField:
-                      current.kanbanLaneField ??
-                      kanban.fields[0]?.field ??
-                      null,
-                    viewMode: "kanban",
-                  }),
-                )
-              }
-            >
-              Kanban view
-            </button>
-            <button
-              type="button"
-              className={buttonClasses({ size: "sm", variant: "ghost" })}
-              onClick={resetToDefault}
-            >
-              Reset
-            </button>
-          </div>
+  function showListView() {
+    setLayoutState((current) => ({
+      ...current,
+      viewMode: "list",
+    }));
+  }
+
+  function showKanbanView() {
+    setLayoutState((current) =>
+      normalizeLayoutState(columns, {
+        ...current,
+        kanbanLaneField:
+          current.kanbanLaneField ??
+          kanban.fields[0]?.field ??
+          null,
+        viewMode: "kanban",
+      }),
+    );
+  }
+
+  function renderTopToolbar() {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded px-3 py-1 text-sm font-medium text-[var(--panel-ink)] transition hover:bg-[color-mix(in_srgb,var(--accent-soft)_60%,white)]"
+          >
+            All
+          </button>
         </div>
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
-          <div className="grid gap-4">
-            <Field label="Search">
-              <TextInput
-                placeholder={searchPlaceholder}
-                value={normalizedFilterState.searchText}
-                onChange={(event) =>
-                  setFilterState((current) =>
-                    normalizeFilterState({
-                      ...current,
-                      searchText: event.target.value,
-                    }),
-                  )
-                }
-              />
-            </Field>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filterableColumns.map((column) => {
-                const currentValue =
-                  normalizedFilterState.columnFilters.find(
-                    (filter) => filter.columnId === column.id,
-                  )?.value ?? "";
-
-                return (
-                  <Field key={column.id} label={column.label}>
-                    <SelectInput
-                      options={[
-                        { label: "All", value: "" },
-                        ...(column.filterOptions ?? []),
-                      ]}
-                      onValueChange={(value) => setFilterValue(column.id, value)}
-                      value={currentValue}
-                    />
-                  </Field>
-                );
-              })}
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Field label="Sort field">
-                <SelectInput
-                  options={sortableColumns.map((column) => ({
-                    label: column.label,
-                    value: column.sortKey ?? column.id,
-                  }))}
-                  onValueChange={(value) =>
-                    setLayoutState((current) => ({
-                      ...current,
-                      sort: {
-                        direction: current.sort?.direction ?? "desc",
-                        field: value,
-                      },
-                    }))
-                  }
-                  value={
-                    normalizedLayoutState.sort?.field ??
-                    sortableColumns[0]?.sortKey ??
-                    ""
-                  }
-                />
-              </Field>
-              <Field label="Direction">
-                <SelectInput
-                  options={[
-                    { label: "Descending", value: "desc" },
-                    { label: "Ascending", value: "asc" },
-                  ]}
-                  onValueChange={(value) =>
-                    setLayoutState((current) => ({
-                      ...current,
-                      sort: {
-                        direction: value === "asc" ? "asc" : "desc",
-                        field:
-                          current.sort?.field ??
-                          sortableColumns[0]?.sortKey ??
-                          "",
-                      },
-                    }))
-                  }
-                  value={normalizedLayoutState.sort?.direction ?? "desc"}
-                />
-              </Field>
-              <Field label="List grouping">
-                <SelectInput
-                  options={[
-                    { label: "None", value: "" },
-                    ...groupableColumns.map((column) => ({
-                      label: column.label,
-                      value: column.id,
-                    })),
-                  ]}
-                  onValueChange={(value) =>
-                    setLayoutState((current) => ({
-                      ...current,
-                      groupBy: value || null,
-                    }))
-                  }
-                  value={normalizedLayoutState.groupBy ?? ""}
-                />
-              </Field>
-              {normalizedLayoutState.viewMode === "kanban" ? (
-                <Field label="Kanban columns">
-                  <SelectInput
-                    options={kanban.fields.map((field) => ({
-                      label: field.label,
-                      value: field.field,
-                    }))}
-                    onValueChange={(value) =>
-                      setLayoutState((current) => ({
-                        ...current,
-                        kanbanLaneField: value || null,
-                      }))
-                    }
-                    value={activeKanbanField?.field ?? ""}
-                  />
-                </Field>
-              ) : (
-                <div className="rounded-2xl border border-[var(--line)] bg-white/65 px-4 py-3 text-sm text-[var(--ink-muted)]">
-                  {hasMore
-                    ? "More rows are available as you scroll."
-                    : "All matching rows are loaded into the current view."}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-4">
-            <div className="rounded-[24px] border border-[var(--line)] bg-white/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-[var(--panel-ink)]">Layout profiles</p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "secondary" })}
-                    onClick={() => saveNewProfile("layout")}
-                  >
-                    Save new
-                  </button>
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "ghost" })}
-                    disabled={!selectedLayoutProfile?.isEditable}
-                    onClick={() => updateCurrentProfile("layout")}
-                  >
-                    Update
-                  </button>
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "ghost" })}
-                    disabled={!selectedLayoutProfile?.isEditable}
-                    onClick={() => deleteCurrentProfile("layout")}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3">
-                <SelectInput
-                  options={[
-                    { label: "System default", value: "" },
-                    ...layoutProfiles.map((profile) => ({
-                      label: `${profile.name}${profile.isOrgShared ? " · Org" : profile.isEditable ? "" : " · Shared"}`,
-                      value: profile.id,
-                    })),
-                  ]}
-                  onValueChange={applyLayoutProfile}
-                  value={selectedLayoutProfileId}
-                />
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-[var(--line)] bg-white/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-[var(--panel-ink)]">Filter profiles</p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "secondary" })}
-                    onClick={() => saveNewProfile("filter")}
-                  >
-                    Save new
-                  </button>
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "ghost" })}
-                    disabled={!selectedFilterProfile?.isEditable}
-                    onClick={() => updateCurrentProfile("filter")}
-                  >
-                    Update
-                  </button>
-                  <button
-                    type="button"
-                    className={buttonClasses({ size: "sm", variant: "ghost" })}
-                    disabled={!selectedFilterProfile?.isEditable}
-                    onClick={() => deleteCurrentProfile("filter")}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3">
-                <SelectInput
-                  options={[
-                    { label: "System default", value: "" },
-                    ...filterProfiles.map((profile) => ({
-                      label: `${profile.name}${profile.isOrgShared ? " · Org" : profile.isEditable ? "" : " · Shared"}`,
-                      value: profile.id,
-                    })),
-                  ]}
-                  onValueChange={applyFilterProfile}
-                  value={selectedFilterProfileId}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <details className="mt-4 rounded-[24px] border border-[var(--line)] bg-white/65 p-4">
-          <summary className="cursor-pointer text-sm font-medium text-[var(--panel-ink)]">
-            Column layout controls
-          </summary>
-          <div className="mt-4 grid gap-3">
-            {orderedColumns.map((column) => {
-              const isSystemPinned =
-                column.pinning === "system-left" || column.pinning === "system-right";
-              const selectedPinning = normalizedLayoutState.pinnedLeftColumnIds.includes(column.id)
-                ? "left"
-                : normalizedLayoutState.pinnedRightColumnIds.includes(column.id)
-                  ? "right"
-                  : "none";
-
-              return (
-                <div
-                  key={column.id}
-                  className="grid gap-3 rounded-2xl border border-[var(--line)] bg-[color-mix(in_srgb,var(--canvas)_74%,white)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-[var(--panel-ink)]">{column.label}</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--ink-muted)]">
-                      {isSystemPinned
-                        ? column.pinning === "system-left"
-                          ? "System sticky left"
-                          : "System sticky right"
-                        : column.pinning === "user"
-                          ? "User pinning enabled"
-                          : "Standard column"}
-                    </p>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm text-[var(--panel-ink)]">
-                    <input
-                      checked={visibleColumnIds.has(column.id)}
-                      disabled={isSystemPinned || column.canHide === false}
-                      type="checkbox"
-                      onChange={(event) =>
-                        setColumnVisibility(column.id, event.target.checked)
-                      }
-                    />
-                    Visible
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      className={buttonClasses({ size: "sm", variant: "ghost" })}
-                      onClick={() => moveColumn(column.id, "up")}
-                    >
-                      Up
-                    </button>
-                    <button
-                      type="button"
-                      className={buttonClasses({ size: "sm", variant: "ghost" })}
-                      onClick={() => moveColumn(column.id, "down")}
-                    >
-                      Down
-                    </button>
-                    {column.pinning === "user" ? (
-                      <select
-                        className="min-h-10 rounded-lg border border-[var(--line)] bg-white px-3 text-sm text-[var(--panel-ink)]"
-                        value={selectedPinning}
-                        onChange={(event) =>
-                          setColumnPinning(
-                            column.id,
-                            event.target.value as "left" | "none" | "right",
-                          )
-                        }
-                      >
-                        <option value="none">No sticky</option>
-                        <option value="left">Sticky left</option>
-                        <option value="right">Sticky right</option>
-                      </select>
-                    ) : null}
-                  </div>
-                </div>
-              );
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-label="Open filter options"
+            className={buttonClasses({
+              size: "sm",
+              variant: "ghost",
+              className:
+                "min-h-8 min-w-8 rounded border-transparent px-0 text-[var(--panel-ink)] hover:border-transparent hover:bg-[color-mix(in_srgb,var(--accent-soft)_55%,white)] hover:text-[var(--panel-ink)]",
             })}
-          </div>
-        </details>
+          >
+            <ListFilterPlus className="h-4 w-4" />
+          </button>
 
-        {feedbackMessage ? (
-          <p className="mt-4 text-sm text-[var(--panel-ink)]">{feedbackMessage}</p>
-        ) : null}
-        {errorMessage ? (
-          <p className="mt-2 text-sm text-[var(--danger,#a42b2b)]">{errorMessage}</p>
-        ) : null}
-        {isPending ? (
-          <p className="mt-2 text-sm text-[var(--ink-muted)]">Saving changes…</p>
-        ) : null}
-      </section>
+          <DropdownMenu open={isSortMenuOpen} onOpenChange={setIsSortMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open sort options"
+                className={buttonClasses({
+                  size: "sm",
+                  variant: "secondary",
+                  className:
+                    "min-h-8 min-w-8 rounded border-[color-mix(in_srgb,var(--line)_80%,white)] px-0",
+                })}
+              >
+                <SortTriggerIcon className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="grid h-[24rem] min-w-[15rem] grid-rows-[minmax(0,1fr)_auto] overflow-hidden p-0"
+            >
+              <div className="relative min-h-0 h-full">
+                {showSortScrollTop ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center bg-gradient-to-b from-[color-mix(in_srgb,white_96%,var(--panel))] via-[color-mix(in_srgb,white_96%,var(--panel))] to-transparent pt-1">
+                    <ChevronUp className="h-4 w-4 text-[var(--ink-muted)]" />
+                  </div>
+                ) : null}
+                <div
+                  ref={sortMenuScrollRef}
+                  className="h-full min-h-0 overflow-y-auto p-1"
+                  onScroll={syncSortMenuScrollIndicators}
+                >
+                  <RadioGroup
+                    className="gap-1"
+                    value={normalizedLayoutState.sort?.field ?? sortableColumns[0]?.sortKey ?? ""}
+                    onValueChange={setSortField}
+                  >
+                    {sortableColumns.map((column) => {
+                      const columnSortKey = column.sortKey ?? column.id;
+                      const isActive = normalizedLayoutState.sort?.field === columnSortKey;
 
+                      return (
+                        <label
+                          key={column.id}
+                          className={cn(
+                            "flex cursor-pointer items-center gap-3 rounded px-2.5 py-2 text-sm text-[var(--panel-ink)] transition hover:bg-slate-100",
+                            isActive &&
+                              "bg-[color-mix(in_srgb,var(--accent)_14%,white)] text-[var(--panel-ink)]",
+                          )}
+                          onClick={() => setSortField(columnSortKey)}
+                        >
+                          <RadioGroupItem
+                            aria-label={`Sort by ${column.label}`}
+                            className="size-4 border-[var(--panel-ink)] data-[state=checked]:border-[var(--panel-ink)]"
+                            value={columnSortKey}
+                          />
+                          <span>{column.label}</span>
+                        </label>
+                      );
+                    })}
+                  </RadioGroup>
+                </div>
+                {showSortScrollBottom ? (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center bg-gradient-to-t from-[color-mix(in_srgb,white_96%,var(--panel))] via-[color-mix(in_srgb,white_96%,var(--panel))] to-transparent pb-1">
+                    <ChevronDown className="h-4 w-4 text-[var(--ink-muted)]" />
+                  </div>
+                ) : null}
+              </div>
+              <div className="border-t border-[var(--line)] bg-[color-mix(in_srgb,white_96%,var(--panel))] p-1">
+                <RadioGroup
+                  className="gap-1"
+                  value={normalizedLayoutState.sort?.direction ?? "desc"}
+                  onValueChange={(value) =>
+                    updateSortDirection(value === "asc" ? "asc" : "desc")
+                  }
+                >
+                  <label
+                    className={cn(
+                      "flex cursor-pointer items-center gap-3 rounded px-2.5 py-2 text-sm text-[var(--panel-ink)] transition hover:bg-slate-100",
+                      normalizedLayoutState.sort?.direction === "asc" &&
+                        "bg-[color-mix(in_srgb,var(--accent)_14%,white)] text-[var(--panel-ink)]",
+                    )}
+                    onClick={() => updateSortDirection("asc")}
+                  >
+                    <RadioGroupItem
+                      aria-label="Sort ascending"
+                      className="size-4 border-[var(--panel-ink)] data-[state=checked]:border-[var(--panel-ink)]"
+                      value="asc"
+                    />
+                    <span>Ascending</span>
+                  </label>
+                  <label
+                    className={cn(
+                      "flex cursor-pointer items-center gap-3 rounded px-2.5 py-2 text-sm text-[var(--panel-ink)] transition hover:bg-slate-100",
+                      normalizedLayoutState.sort?.direction !== "asc" &&
+                        "bg-[color-mix(in_srgb,var(--accent)_14%,white)] text-[var(--panel-ink)]",
+                    )}
+                    onClick={() => updateSortDirection("desc")}
+                  >
+                    <RadioGroupItem
+                      aria-label="Sort descending"
+                      className="size-4 border-[var(--panel-ink)] data-[state=checked]:border-[var(--panel-ink)]"
+                      value="desc"
+                    />
+                    <span>Descending</span>
+                  </label>
+                </RadioGroup>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open more actions"
+                className={buttonClasses({
+                  size: "sm",
+                  variant: "secondary",
+                  className:
+                    "min-h-8 rounded border-[color-mix(in_srgb,var(--line)_80%,white)] px-3 text-[var(--panel-ink)]",
+                })}
+              >
+                More actions
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[12rem]">
+              <DropdownMenuItem
+                className={cn(
+                  normalizedLayoutState.viewMode === "list" &&
+                    "bg-[color-mix(in_srgb,var(--accent)_14%,white)] text-[var(--panel-ink)]",
+                )}
+                onSelect={() => showListView()}
+              >
+                List view
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={cn(
+                  normalizedLayoutState.viewMode === "kanban" &&
+                    "bg-[color-mix(in_srgb,var(--accent)_14%,white)] text-[var(--panel-ink)]",
+                )}
+                onSelect={() => showKanbanView()}
+              >
+                Kanban view
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => setIsLayoutEditorOpen((current) => !current)}
+              >
+                {isLayoutEditorOpen ? "Hide" : "Table layout editor"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={resetToDefault}>
+                Reset table
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <button
+            type="button"
+            className={buttonClasses({
+              size: "sm",
+              variant: "primary",
+              className: "min-h-8 rounded px-3",
+            })}
+          >
+            Add lead
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderLayoutEditor() {
+    return (
+      <details
+        open={isLayoutEditorOpen}
+        className="rounded border border-[var(--line)] bg-white/65 p-4"
+      >
+        <summary className="cursor-pointer text-sm font-medium text-[var(--panel-ink)]">
+          Table layout editor
+        </summary>
+        <div className="mt-4 grid gap-3">
+          {orderedColumns.map((column) => {
+            const isSystemPinned =
+              column.pinning === "system-left" || column.pinning === "system-right";
+            const selectedPinning = normalizedLayoutState.pinnedLeftColumnIds.includes(column.id)
+              ? "left"
+              : normalizedLayoutState.pinnedRightColumnIds.includes(column.id)
+                ? "right"
+                : "none";
+
+            return (
+              <div
+                key={column.id}
+                className="grid gap-3 rounded border border-[var(--line)] bg-[color-mix(in_srgb,var(--canvas)_74%,white)] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
+              >
+                <div>
+                  <p className="text-sm font-medium text-[var(--panel-ink)]">{column.label}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-[var(--ink-muted)]">
+                    {isSystemPinned
+                      ? column.pinning === "system-left"
+                        ? "System sticky left"
+                        : "System sticky right"
+                      : column.pinning === "user"
+                        ? "User pinning enabled"
+                        : "Standard column"}
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-[var(--panel-ink)]">
+                  <input
+                    checked={visibleColumnIds.has(column.id)}
+                    disabled={isSystemPinned || column.canHide === false}
+                    type="checkbox"
+                    onChange={(event) =>
+                      setColumnVisibility(column.id, event.target.checked)
+                    }
+                  />
+                  Visible
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={buttonClasses({ size: "sm", variant: "ghost" })}
+                    onClick={() => moveColumn(column.id, "up")}
+                  >
+                    Up
+                  </button>
+                  <button
+                    type="button"
+                    className={buttonClasses({ size: "sm", variant: "ghost" })}
+                    onClick={() => moveColumn(column.id, "down")}
+                  >
+                    Down
+                  </button>
+                  {column.pinning === "user" ? (
+                    <select
+                      className="min-h-10 rounded border border-[var(--line)] bg-white px-3 text-sm text-[var(--panel-ink)]"
+                      value={selectedPinning}
+                      onChange={(event) =>
+                        setColumnPinning(
+                          column.id,
+                          event.target.value as "left" | "none" | "right",
+                        )
+                      }
+                    >
+                      <option value="none">No sticky</option>
+                      <option value="left">Sticky left</option>
+                      <option value="right">Sticky right</option>
+                    </select>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      {renderTopToolbar()}
+      {isLayoutEditorOpen ? renderLayoutEditor() : null}
       {normalizedLayoutState.viewMode === "kanban"
         ? renderKanbanBoard()
         : isMobileViewport

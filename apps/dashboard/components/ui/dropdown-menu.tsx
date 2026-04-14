@@ -19,7 +19,7 @@ const DropdownMenuContent = forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-[200] max-h-[min(24rem,70vh)] min-w-[18rem] overflow-y-auto overflow-x-hidden rounded-xl border border-[var(--line)] bg-[color-mix(in_srgb,white_96%,var(--panel))] p-1 shadow-[0_12px_40px_color-mix(in_srgb,var(--accent-strong)_10%,transparent)] backdrop-blur-md",
+        "z-[200] max-h-[min(24rem,70vh)] min-w-[18rem] overflow-y-auto overflow-x-hidden rounded border border-[var(--line)] bg-[color-mix(in_srgb,white_96%,var(--panel))] p-1 shadow-[0_12px_40px_color-mix(in_srgb,var(--accent-strong)_10%,transparent)] backdrop-blur-md",
         className,
       )}
       {...props}

@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "gt-next";
 import { useMutation, useQuery } from "convex/react";
 import type { Id } from "@convex/_generated/dataModel";
-import { Mail, MoreVertical, Copy } from "lucide-react";
+import { Copy, LayoutGrid, List, Mail, MoreVertical, UserPlus } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { DataTable } from "@/components/data-table/data-table";
 import {
@@ -105,6 +105,29 @@ function statusTone(status: LeadRow["status"]) {
   }
 }
 
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+async function waitForMenuItem(label: string, attempts = 8) {
+  for (let index = 0; index < attempts; index += 1) {
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    );
+    const targetItem = menuItems.find((item) => item.textContent?.trim() === label);
+
+    if (targetItem) {
+      return targetItem;
+    }
+
+    await nextAnimationFrame();
+  }
+
+  return null;
+}
+
 function LeadActionsMenu({
   email,
 }: Readonly<{
@@ -133,7 +156,7 @@ function LeadActionsMenu({
             className={buttonClasses({
               size: "sm",
               variant: "ghost",
-              className: "min-h-9 min-w-9 px-0",
+              className: "min-h-9 min-w-9 rounded px-0",
             })}
             onPointerUp={(event) => {
               const trigger = event.currentTarget;
@@ -185,6 +208,16 @@ export function LeadsWorkspacePage({
   orgSlug: string;
 }>) {
   const locale = useLocale();
+  const dataTableWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [isPageActionsMenuOpen, setIsPageActionsMenuOpen] = useState(false);
+  const [dataTableRenderKey, setDataTableRenderKey] = useState(0);
+  const [tableDefaults, setTableDefaults] = useState<{
+    filters: DataTableFilterState;
+    layout: DataTableLayoutState;
+  }>({
+    filters: DEFAULT_FILTERS,
+    layout: DEFAULT_LAYOUT,
+  });
   const [tableState, setTableState] = useState<{
     filters: DataTableFilterState;
     layout: DataTableLayoutState;
@@ -517,63 +550,203 @@ export function LeadsWorkspacePage({
     return <WorkspaceLoadingCard label="Loading leads" />;
   }
 
+  async function triggerHiddenMoreActionsItem(
+    itemLabel: "Kanban view" | "List view" | "Reset table" | "Table layout editor",
+  ) {
+    const dataTableWrapper = dataTableWrapperRef.current;
+    if (!dataTableWrapper) {
+      return;
+    }
+
+    const moreActionsTrigger = dataTableWrapper.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open more actions"]',
+    );
+    if (!moreActionsTrigger) {
+      return;
+    }
+
+    moreActionsTrigger.click();
+    const targetItem =
+      (itemLabel === "Table layout editor"
+        ? await waitForMenuItem("Table layout editor") ?? await waitForMenuItem("Hide")
+        : await waitForMenuItem(itemLabel));
+
+    targetItem?.click();
+  }
+
+  function runMoreActionsItem(
+    itemLabel: Parameters<typeof triggerHiddenMoreActionsItem>[0],
+  ) {
+    setIsPageActionsMenuOpen(false);
+
+    if (itemLabel === "List view" || itemLabel === "Kanban view") {
+      setTableDefaults({
+        filters: tableState.filters,
+        layout: {
+          ...tableState.layout,
+          viewMode: itemLabel === "List view" ? "list" : "kanban",
+        },
+      });
+      setDataTableRenderKey((current) => current + 1);
+      return;
+    }
+
+    if (itemLabel === "Reset table") {
+      setTableDefaults({
+        filters: DEFAULT_FILTERS,
+        layout: DEFAULT_LAYOUT,
+      });
+      setTableState({
+        filters: DEFAULT_FILTERS,
+        layout: DEFAULT_LAYOUT,
+      });
+      setDataTableRenderKey((current) => current + 1);
+      return;
+    }
+
+    window.setTimeout(() => {
+      void triggerHiddenMoreActionsItem(itemLabel);
+    }, 0);
+  }
+
   return (
-    <DataTable
-      columns={columns}
-      defaultFilters={DEFAULT_FILTERS}
-      defaultLayout={DEFAULT_LAYOUT}
-      emptyState={{
-        description:
-          "Try a different search, switch profiles, or reset the table to the system defaults.",
-        title: "No leads match the current view.",
-      }}
-      filterProfiles={resolvedWorkspaceOptions.filterProfiles}
-      hasMore={resolvedLeadsResult.hasMore}
-      kanban={{ fields: kanbanFields }}
-      layoutProfiles={resolvedWorkspaceOptions.layoutProfiles}
-      onDeleteProfile={async ({ profileId, profileKind }) => {
-        await deleteProfile({
-          orgSlug,
-          profileId,
-          profileKind,
-        });
-      }}
-      onSaveFilterProfile={async (input) => {
-        const result = await saveFilterProfile({
-          isOrgShared: input.isOrgShared,
-          name: input.name,
-          orgSlug,
-          profileId: input.profileId as Id<"dataTableFilterProfiles"> | undefined,
-          resourceKey: RESOURCE_KEY,
-          sharedWithUserIds: input.sharedWithUserIds as Id<"users">[],
-          state: input.state,
-        });
-        return String(result.profileId);
-      }}
-      onSaveLayoutProfile={async (input) => {
-        const result = await saveLayoutProfile({
-          isOrgShared: input.isOrgShared,
-          name: input.name,
-          orgSlug,
-          profileId: input.profileId as Id<"dataTableLayoutProfiles"> | undefined,
-          resourceKey: RESOURCE_KEY,
-          sharedWithUserIds: input.sharedWithUserIds as Id<"users">[],
-          state: input.state,
-        });
-        return String(result.profileId);
-      }}
-      onTableStateChange={setTableState}
-      renderCardActions={(row) => <LeadActionsMenu email={row.email} />}
-      resourceKey={RESOURCE_KEY}
-      rows={resolvedLeadsResult.rows}
-      searchPlaceholder="Search leads by name, email, company, or source"
-      selection={{ enabled: true }}
-      shareableUsers={resolvedWorkspaceOptions.shareableUsers}
-      status={{
-        isLoading: isTableLoading,
-        pageSize: 50,
-        totalCount: resolvedLeadsResult.totalCount,
-      }}
-    />
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <DropdownMenu
+          open={isPageActionsMenuOpen}
+          onOpenChange={setIsPageActionsMenuOpen}
+        >
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Open page actions"
+              className={buttonClasses({
+                size: "sm",
+                variant: "secondary",
+                className:
+                  "min-h-8 rounded border-[color-mix(in_srgb,var(--line)_80%,white)] px-3 text-[var(--panel-ink)]",
+              })}
+            >
+              More actions
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[12rem] p-1">
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                aria-pressed={tableState.layout.viewMode === "list"}
+                className={cn(
+                  "flex h-14 cursor-pointer flex-col items-center justify-center gap-1 rounded px-0.5 text-center text-xs font-medium text-[var(--panel-ink)] transition hover:bg-slate-100",
+                  tableState.layout.viewMode === "list" &&
+                    "bg-slate-100 hover:bg-slate-200",
+                )}
+                onClick={() => runMoreActionsItem("List view")}
+              >
+                <List className="h-4 w-4 shrink-0" />
+                <span>List view</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={tableState.layout.viewMode === "kanban"}
+                className={cn(
+                  "flex h-14 cursor-pointer flex-col items-center justify-center gap-1 rounded px-0.5 text-center text-xs font-medium text-[var(--panel-ink)] transition hover:bg-slate-100",
+                  tableState.layout.viewMode === "kanban" &&
+                    "bg-slate-100 hover:bg-slate-200",
+                )}
+                onClick={() => runMoreActionsItem("Kanban view")}
+              >
+                <LayoutGrid className="h-4 w-4 shrink-0" />
+                <span>Kanban view</span>
+              </button>
+            </div>
+            <DropdownMenuItem
+              className="mt-1"
+              onSelect={() => runMoreActionsItem("Table layout editor")}
+            >
+              Table layout editor
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => runMoreActionsItem("Reset table")}>
+              Reset table
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <button
+          type="button"
+          className={buttonClasses({
+            size: "sm",
+            variant: "primary",
+            className: "min-h-8 items-center gap-2 rounded px-3",
+          })}
+        >
+          <UserPlus className="h-4 w-4" />
+          Add lead
+        </button>
+      </div>
+
+      <div
+        ref={dataTableWrapperRef}
+        className="[&>div>div:first-child]:hidden"
+      >
+        <DataTable
+          key={dataTableRenderKey}
+          columns={columns}
+          defaultFilters={tableDefaults.filters}
+          defaultLayout={tableDefaults.layout}
+          emptyState={{
+            description:
+              "Try a different search, switch profiles, or reset the table to the system defaults.",
+            title: "No leads match the current view.",
+          }}
+          filterProfiles={resolvedWorkspaceOptions.filterProfiles}
+          hasMore={resolvedLeadsResult.hasMore}
+          kanban={{ fields: kanbanFields }}
+          layoutProfiles={resolvedWorkspaceOptions.layoutProfiles}
+          onDeleteProfile={async ({ profileId, profileKind }) => {
+            await deleteProfile({
+              orgSlug,
+              profileId,
+              profileKind,
+            });
+          }}
+          onSaveFilterProfile={async (input) => {
+            const result = await saveFilterProfile({
+              isOrgShared: input.isOrgShared,
+              name: input.name,
+              orgSlug,
+              profileId: input.profileId as Id<"dataTableFilterProfiles"> | undefined,
+              resourceKey: RESOURCE_KEY,
+              sharedWithUserIds: input.sharedWithUserIds as Id<"users">[],
+              state: input.state,
+            });
+            return String(result.profileId);
+          }}
+          onSaveLayoutProfile={async (input) => {
+            const result = await saveLayoutProfile({
+              isOrgShared: input.isOrgShared,
+              name: input.name,
+              orgSlug,
+              profileId: input.profileId as Id<"dataTableLayoutProfiles"> | undefined,
+              resourceKey: RESOURCE_KEY,
+              sharedWithUserIds: input.sharedWithUserIds as Id<"users">[],
+              state: input.state,
+            });
+            return String(result.profileId);
+          }}
+          onTableStateChange={setTableState}
+          renderCardActions={(row) => <LeadActionsMenu email={row.email} />}
+          resourceKey={RESOURCE_KEY}
+          rows={resolvedLeadsResult.rows}
+          searchPlaceholder="Search leads by name, email, company, or source"
+          selection={{ enabled: true }}
+          shareableUsers={resolvedWorkspaceOptions.shareableUsers}
+          status={{
+            isLoading: isTableLoading,
+            pageSize: 50,
+            totalCount: resolvedLeadsResult.totalCount,
+          }}
+        />
+      </div>
+    </div>
   );
 }
