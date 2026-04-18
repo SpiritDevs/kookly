@@ -1,5 +1,5 @@
-import { ConversationsPageContent } from "@/components/conversations-page-content";
+import { ConversationsInboxPage } from "@/components/conversations-inbox-page";
 
 export default function ConversationsPage() {
-  return <ConversationsPageContent />;
+  return <ConversationsInboxPage />;
 }

@@ -856,6 +856,7 @@ export function DashboardAppChrome({
   const [mobileNotificationsOpen, setMobileNotificationsOpen] = useState(false);
   const [mobileAccountMenuOpen, setMobileAccountMenuOpen] = useState(false);
   const [mobileSupportAIChatOpen, setMobileSupportAIChatOpen] = useState(false);
+  const [conversationsRailHidden, setConversationsRailHidden] = useState(false);
   const [sidebarPanel, setSidebarPanel] = useState<"main" | "settings">(
     pathname === `${base}/profile` || pathname.startsWith(`${base}/settings/`)
       ? "settings"
@@ -934,6 +935,25 @@ export function DashboardAppChrome({
     setMobileAccountMenuOpen(false);
     setMobileSupportAIChatOpen(false);
   }, [isMobileViewport]);
+
+  useEffect(() => {
+    function handleConversationsRailHidden(event: Event) {
+      const detail = (event as CustomEvent<{ hidden?: boolean }>).detail;
+      setConversationsRailHidden(detail?.hidden ?? false);
+    }
+
+    window.addEventListener(
+      "kookly:conversations-rail-hidden",
+      handleConversationsRailHidden as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "kookly:conversations-rail-hidden",
+        handleConversationsRailHidden as EventListener,
+      );
+    };
+  }, []);
 
   function closeMobileTopLevelOverlays() {
     setCommandOpen(false);
@@ -1201,6 +1221,9 @@ export function DashboardAppChrome({
   const supportAIChatOpen = isMobileViewport
     ? mobileSupportAIChatOpen
     : supportAIChatShown;
+  const isConversationsPage =
+    pathname === `${base}/conversations` ||
+    pathname.startsWith(`${base}/conversations/`);
   const headerOverlayActive = drawerIsOpen && activeDrawer !== null;
   const headerOverlayTitle = headerOverlayActive ? activeDrawerTitle : null;
   const headerTitleDirection: 1 | -1 =
@@ -1569,6 +1592,9 @@ export function DashboardAppChrome({
             <aside
               className={cn(
                 "fixed bottom-0 left-0 top-[52px] z-50 flex w-full min-h-0 flex-col overflow-hidden border-r border-[var(--line)] bg-[var(--panel-strong)] transition-transform duration-200 ease-out sm:w-[var(--sidebar-w)] lg:static lg:inset-auto lg:z-auto lg:h-full lg:translate-x-0 lg:flex-shrink-0",
+                isConversationsPage &&
+                  conversationsRailHidden &&
+                  "lg:rounded-tr-lg",
                 mobileNavOpen
                   ? "translate-x-0"
                   : "-translate-x-full lg:translate-x-0",
@@ -1607,8 +1633,13 @@ export function DashboardAppChrome({
               </AnimatePresence>
             </aside>
 
-            <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-tr-lg bg-[var(--canvas)] px-4 pb-4 sm:px-6 sm:pb-5 lg:px-10 lg:pb-6">
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto pt-4 sm:pt-5 lg:pt-6">
+            <main
+              className={cn(
+                "relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden rounded-tr-lg bg-[var(--canvas)]",
+                isConversationsPage && "bg-black",
+              )}
+            >
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto">
                 {children}
               </div>
             </main>
@@ -1709,19 +1740,6 @@ export function DashboardAppChrome({
                       : "border-l border-[var(--line)] shadow-[-12px_0_28px_color-mix(in_srgb,var(--panel-ink)_10%,transparent)]",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--accent-strong)]">
-                        {gt("Workspace Assistant")}
-                      </p>
-                      <h2 className="mt-2 font-[family-name:var(--font-dashboard-display)] text-2xl font-semibold tracking-[-0.03em] text-[var(--panel-ink)]">
-                        {gt("Support AI Chat")}
-                      </h2>
-                    </div>
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[color-mix(in_srgb,var(--accent)_18%,var(--line))] bg-[color-mix(in_srgb,var(--accent)_8%,white)] text-[var(--accent-strong)] shadow-[inset_0_1px_0_color-mix(in_srgb,white_70%,transparent)]">
-                      <Icon name="bot" className="size-5" />
-                    </div>
-                  </div>
                   <div className="mt-6 rounded-[24px] border border-[var(--line)] bg-white/75 p-4 shadow-[inset_0_1px_0_color-mix(in_srgb,white_88%,transparent)]">
                     <p className="text-sm font-medium text-[var(--panel-ink)]">
                       {gt("Assistant ready for this workspace")}
