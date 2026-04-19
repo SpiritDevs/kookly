@@ -7,7 +7,9 @@ import {
   Activity,
   Boxes,
   LayoutGrid,
+  Menu,
   MessageSquare,
+  SquarePen,
   UserRoundCog,
   type LucideIcon,
 } from "lucide-react";
@@ -1734,12 +1736,24 @@ export function DashboardAppChrome({
                     ease: [0.22, 1, 0.36, 1],
                   }}
                   className={cn(
-                    "relative z-[70] flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[color-mix(in_srgb,var(--panel)_92%,white)] px-5 py-5",
+                    "relative z-[70] flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto bg-[color-mix(in_srgb,var(--panel)_92%,white)] px-5 pb-5 pt-16",
                     isMobileViewport
                       ? "h-full border-l-0 shadow-none"
                       : "border-l border-[var(--line)] shadow-[-12px_0_28px_color-mix(in_srgb,var(--panel-ink)_10%,transparent)]",
                   )}
                 >
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-[72] flex items-start justify-between">
+                    <AssistantEdgeActionButton
+                      label={gt("Menu")}
+                      icon={Menu}
+                      className="rounded-br-2xl"
+                      invertedCorners={["bottom-left", "top-right"]}
+                    />
+                    <AssistantEdgeActionButton
+                      label={gt("New chat")}
+                      icon={SquarePen}
+                    />
+                  </div>
                   <div className="mt-6 rounded-[24px] border border-[var(--line)] bg-white/75 p-4 shadow-[inset_0_1px_0_color-mix(in_srgb,white_88%,transparent)]">
                     <p className="text-sm font-medium text-[var(--panel-ink)]">
                       {gt("Assistant ready for this workspace")}
@@ -1767,6 +1781,43 @@ export function DashboardAppChrome({
             ) : null}
           </AnimatePresence>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AssistantEdgeActionButton({
+  label,
+  icon: IconComponent,
+  className,
+  invertedCorners = [],
+}: Readonly<{
+  label: string;
+  icon: LucideIcon;
+  className?: string;
+  invertedCorners?: Array<"bottom-left" | "top-right">;
+}>) {
+  return (
+    <div className="pointer-events-auto group relative">
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        className={cn(
+          "relative inline-flex h-14 w-14 items-center justify-center overflow-hidden border-b border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_96%,white)] text-[var(--panel-ink)] shadow-[0_10px_24px_-18px_color-mix(in_srgb,var(--panel-ink)_24%,transparent)] transition duration-200 ease-out hover:bg-white",
+          className,
+        )}
+      >
+        {invertedCorners.includes("top-right") ? (
+          <span className="pointer-events-none absolute right-0 top-0 h-6 w-6 rounded-bl-2xl bg-[color-mix(in_srgb,var(--panel)_92%,white)] shadow-[-1px_1px_0_0_var(--line)]" />
+        ) : null}
+        {invertedCorners.includes("bottom-left") ? (
+          <span className="pointer-events-none absolute bottom-0 left-0 h-6 w-6 rounded-tr-2xl bg-[color-mix(in_srgb,var(--panel)_92%,white)] shadow-[1px_-1px_0_0_var(--line)]" />
+        ) : null}
+        <IconComponent className="size-5" />
+      </button>
+      <div className="pointer-events-none absolute left-1/2 top-full z-[73] mt-2 -translate-x-1/2 rounded-md bg-[var(--panel-ink)] px-2 py-1 text-xs font-medium text-white opacity-0 shadow-[0_10px_20px_-12px_color-mix(in_srgb,var(--panel-ink)_48%,transparent)] transition duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100">
+        {label}
       </div>
     </div>
   );

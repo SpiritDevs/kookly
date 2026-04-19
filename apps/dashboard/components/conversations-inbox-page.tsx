@@ -140,6 +140,8 @@ const sendSnoozeOptions: SendSnoozeOption[] = [
   { label: "Custom" },
 ];
 
+const threadBottomPinThreshold = 40;
+
 export function ConversationsInboxPage({
   fixture = conversationInboxFixture,
 }: Readonly<{
@@ -153,15 +155,34 @@ export function ConversationsInboxPage({
     fixture.conversations[0]?.copilot.suggestedReply ?? "",
   );
   const [inboxOpen, setInboxOpen] = useState(true);
+  const [sentMessagesByConversationId, setSentMessagesByConversationId] =
+    useState<Record<string, ConversationMessage[]>>({});
+  const [pendingSentMessage, setPendingSentMessage] = useState<{
+    conversationId: string;
+    messageId: string;
+  } | null>(null);
   const [seenConversationIds, setSeenConversationIds] = useState<
     Record<string, boolean>
   >({});
 
   const conversations = fixture.conversations.map((conversation) => ({
     ...conversation,
+    preview:
+      sentMessagesByConversationId[conversation.id]?.at(-1)?.body ??
+      conversation.preview,
+    updatedAtLabel:
+      sentMessagesByConversationId[conversation.id]?.at(-1)?.timeLabel ??
+      conversation.updatedAtLabel,
     unreadCount: seenConversationIds[conversation.id]
       ? 0
       : conversation.unreadCount,
+    thread: {
+      ...conversation.thread,
+      messages: [
+        ...conversation.thread.messages,
+        ...(sentMessagesByConversationId[conversation.id] ?? []),
+      ],
+    },
   }));
 
   const selectedConversation =
@@ -194,6 +215,48 @@ export function ConversationsInboxPage({
       );
     };
   }, [inboxOpen]);
+
+  function handleSendMessage(
+    conversation: ConversationListItem,
+    body: string,
+    composerMode: ComposerMode,
+  ) {
+    const normalizedBody = body.trim();
+    if (!normalizedBody) {
+      return;
+    }
+
+    const messageId = `${conversation.id}-${Date.now()}`;
+    const sentMessage: ConversationMessage = {
+      id: messageId,
+      author: composerMode === "internalNote" ? "system" : "agent",
+      senderName:
+        composerMode === "internalNote"
+          ? "Kookly"
+          : conversation.customer.assignee,
+      body: normalizedBody,
+      timeLabel: "Just now",
+      metaLabel:
+        composerMode === "reply"
+          ? undefined
+          : composerMode === "internalNote"
+            ? "Internal note"
+            : composerMode === "sms"
+              ? "SMS sent"
+              : "Email sent",
+      type: composerMode === "internalNote" ? "note" : "text",
+    };
+
+    setSentMessagesByConversationId((current) => ({
+      ...current,
+      [conversation.id]: [...(current[conversation.id] ?? []), sentMessage],
+    }));
+    setPendingSentMessage({
+      conversationId: conversation.id,
+      messageId,
+    });
+    setDraftReply("");
+  }
 
   if (!selectedConversation) {
     return (
@@ -255,11 +318,18 @@ export function ConversationsInboxPage({
           conversation={selectedConversation}
           draftReply={draftReply}
           onDraftReplyChange={setDraftReply}
+          onSendMessage={handleSendMessage}
           inboxOpen={inboxOpen}
           onToggleInbox={() => setInboxOpen((open) => !open)}
           unreadIncomingMessageIds={getUnreadIncomingMessageIds(
             selectedConversation,
           )}
+          pendingSentMessageId={
+            pendingSentMessage?.conversationId === selectedConversation.id
+              ? pendingSentMessage.messageId
+              : null
+          }
+          onPendingSentMessageHandled={() => setPendingSentMessage(null)}
           onMarkConversationSeen={() =>
             setSeenConversationIds((current) =>
               current[selectedConversation.id]
@@ -314,13 +384,43 @@ function InboxRail({
             >
               <Search className="size-4" />
             </button>
-            <button
-              type="button"
-              className={iconButtonClassName}
-              aria-label="Create conversation"
-            >
-              <Plus className="size-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={iconButtonClassName}
+                  aria-label="Create conversation"
+                >
+                  <Plus className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                side="bottom"
+                sideOffset={8}
+                className="w-52 rounded-xl p-1.5"
+              >
+                <DropdownMenuItem className="gap-2 rounded-lg px-3 py-2.5">
+                  <Mail className="size-4 text-[var(--panel-ink)]" />
+                  <span className="text-sm text-[var(--panel-ink)]">
+                    New Email
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 rounded-lg px-3 py-2.5">
+                  <MessageCircleMore className="size-4 text-[var(--panel-ink)]" />
+                  <span className="text-sm text-[var(--panel-ink)]">
+                    New chat
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1.5" />
+                <DropdownMenuItem className="gap-2 rounded-lg px-3 py-2.5">
+                  <MessageSquare className="size-4 text-[var(--panel-ink)]" />
+                  <span className="text-sm text-[var(--panel-ink)]">
+                    Test preview chat
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -400,26 +500,40 @@ function ConversationThread({
   conversation,
   draftReply,
   onDraftReplyChange,
+  onSendMessage,
   inboxOpen,
   onToggleInbox,
   unreadIncomingMessageIds,
+  pendingSentMessageId,
+  onPendingSentMessageHandled,
   onMarkConversationSeen,
 }: Readonly<{
   conversation: ConversationListItem;
   draftReply: string;
   onDraftReplyChange: (value: string) => void;
+  onSendMessage: (
+    conversation: ConversationListItem,
+    body: string,
+    composerMode: ComposerMode,
+  ) => void;
   inboxOpen: boolean;
   onToggleInbox: () => void;
   unreadIncomingMessageIds: string[];
+  pendingSentMessageId: string | null;
+  onPendingSentMessageHandled: () => void;
   onMarkConversationSeen: () => void;
 }>) {
+  const prefersReducedMotion = useReducedMotion() ?? false;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerMenuRef = useRef<HTMLDivElement>(null);
   const composerMenuPanelRef = useRef<HTMLDivElement>(null);
+  const messageElementsRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const autoPinToBottomRef = useRef(true);
   const unreadMessageElementsRef = useRef<Record<string, HTMLDivElement | null>>(
     {},
   );
   const threadScroll = useScrollAffordances<HTMLDivElement>();
+  const [isAutoPinnedToBottom, setIsAutoPinnedToBottom] = useState(true);
   const [composerMode, setComposerMode] = useState<ComposerMode>("reply");
   const [composerMenuOpen, setComposerMenuOpen] = useState(false);
   const [composerMenuDropUp, setComposerMenuDropUp] = useState(false);
@@ -523,14 +637,94 @@ function ConversationThread({
     };
   }, [composerMenuOpen]);
 
+  useEffect(() => {
+    autoPinToBottomRef.current = true;
+    setIsAutoPinnedToBottom(true);
+  }, [conversation.id]);
+
+  useEffect(() => {
+    const element = threadScroll.ref.current;
+    if (!element) {
+      return;
+    }
+    const scrollElement: HTMLDivElement = element;
+
+    function updateAutoPinState() {
+      const shouldAutoPin =
+        scrollElement.scrollHeight -
+          scrollElement.scrollTop -
+          scrollElement.clientHeight <=
+        threadBottomPinThreshold;
+      autoPinToBottomRef.current = shouldAutoPin;
+      setIsAutoPinnedToBottom(shouldAutoPin);
+    }
+
+    updateAutoPinState();
+    scrollElement.addEventListener("scroll", updateAutoPinState, {
+      passive: true,
+    });
+    window.addEventListener("resize", updateAutoPinState);
+
+    return () => {
+      scrollElement.removeEventListener("scroll", updateAutoPinState);
+      window.removeEventListener("resize", updateAutoPinState);
+    };
+  }, [conversation.id, threadScroll.ref]);
+
+  useEffect(() => {
+    const element = threadScroll.ref.current;
+    if (!element || !autoPinToBottomRef.current) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior:
+          pendingSentMessageId && !prefersReducedMotion ? "smooth" : "auto",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [
+    conversation.id,
+    conversation.thread.messages.length,
+    pendingSentMessageId,
+    prefersReducedMotion,
+    threadScroll.ref,
+  ]);
+
+  useEffect(() => {
+    if (!pendingSentMessageId) {
+      return;
+    }
+
+    let cleanupFrame = 0;
+    const frame = window.requestAnimationFrame(() => {
+      cleanupFrame = window.requestAnimationFrame(() => {
+        onPendingSentMessageHandled();
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(cleanupFrame);
+    };
+  }, [onPendingSentMessageHandled, pendingSentMessageId]);
+
   const activeComposerMode =
     composerModeOptions.find((option) => option.value === composerMode) ??
     composerModeOptions[0]!;
   const ActiveComposerIcon = activeComposerMode.icon;
   const isInternalNote = composerMode === "internalNote";
   const hasDraftContent = draftReply.trim().length > 0;
+  const latestMessage = conversation.thread.messages.at(-1);
   const showJumpToLatest =
-    conversation.unreadCount > 0 && threadScroll.canScrollDown;
+    threadScroll.canScrollDown &&
+    !isAutoPinnedToBottom &&
+    latestMessage?.author !== "agent";
 
   function scrollThreadToBottom() {
     const element = threadScroll.ref.current;
@@ -538,10 +732,34 @@ function ConversationThread({
       return;
     }
 
+    autoPinToBottomRef.current = true;
+    setIsAutoPinnedToBottom(true);
     element.scrollTo({
       top: element.scrollHeight,
-      behavior: "smooth",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+  }
+
+  function handleSendClick() {
+    if (!hasDraftContent) {
+      return;
+    }
+
+    onSendMessage(conversation, draftReply, composerMode);
+    textareaRef.current?.focus();
+  }
+
+  function handleComposerKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (event.nativeEvent.isComposing || event.key !== "Enter") {
+      return;
+    }
+
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      handleSendClick();
+    }
   }
 
   return (
@@ -604,14 +822,20 @@ function ConversationThread({
         </div>
         <div
           ref={threadScroll.ref}
-          className="h-full min-h-0 overflow-y-auto px-5 py-5 sm:px-6"
+          className="h-full min-h-0 overflow-y-auto px-5 pb-10 pt-5 sm:px-6 sm:pb-12"
         >
           <div className="mx-auto grid max-w-4xl gap-4">
+            <AnimatePresence initial={false}>
             {conversation.thread.messages.map((message) => {
+              const isFreshMessage = pendingSentMessageId === message.id;
+
               return (
-                <div
+                <motion.div
                   key={message.id}
+                  layout="position"
                   ref={(element) => {
+                    messageElementsRef.current[message.id] = element;
+
                     if (unreadIncomingMessageIds.includes(message.id)) {
                       unreadMessageElementsRef.current[message.id] = element;
                       return;
@@ -619,17 +843,32 @@ function ConversationThread({
 
                     delete unreadMessageElementsRef.current[message.id];
                   }}
+                  initial={
+                    isFreshMessage
+                      ? prefersReducedMotion
+                        ? { opacity: 0 }
+                        : { opacity: 0, y: 18, scale: 0.98 }
+                      : false
+                  }
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{
+                    duration: prefersReducedMotion ? 0.14 : 0.34,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
                 >
-                  <MessageBubble message={message} />
-                </div>
+                  <MessageBubble message={message} isFresh={isFreshMessage} />
+                </motion.div>
               );
             })}
+            </AnimatePresence>
           </div>
         </div>
         <div
           className={cn(
             "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex h-16 items-end justify-center pb-3 transition-opacity duration-200",
-            threadScroll.canScrollDown ? "opacity-100" : "opacity-0",
+            threadScroll.canScrollDown && !isAutoPinnedToBottom
+              ? "opacity-100"
+              : "opacity-0",
           )}
         >
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/88 text-[var(--ink-muted)] shadow-[0_10px_30px_-18px_color-mix(in_srgb,var(--panel-ink)_30%,transparent)] backdrop-blur-sm">
@@ -710,6 +949,7 @@ function ConversationThread({
             ref={textareaRef}
             value={draftReply}
             onChange={(event) => onDraftReplyChange(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             className="mt-2 min-h-0 max-h-[220px] resize-none overflow-y-hidden rounded-none border-0 bg-transparent px-0 py-0 text-sm leading-6 shadow-none focus-visible:ring-0"
             placeholder="Write a reply"
           />
@@ -763,6 +1003,7 @@ function ConversationThread({
                   <button
                     type="button"
                     disabled={!hasDraftContent}
+                    onClick={handleSendClick}
                     className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold tracking-[-0.02em] disabled:cursor-default"
                   >
                     Send
@@ -852,8 +1093,10 @@ function ConversationThread({
 
 function MessageBubble({
   message,
+  isFresh = false,
 }: Readonly<{
   message: ConversationMessage;
+  isFresh?: boolean;
 }>) {
   const isAgent = message.author === "agent";
   const isSystem = message.author === "system";
@@ -887,7 +1130,7 @@ function MessageBubble({
 
       <div
         className={cn(
-          "max-w-[min(100%,44rem)] rounded-lg border px-5 py-4 shadow-[0_24px_60px_-45px_color-mix(in_srgb,var(--panel-ink)_30%,transparent)]",
+          "max-w-[min(100%,44rem)] rounded-lg border px-5 py-4 shadow-[0_24px_60px_-45px_color-mix(in_srgb,var(--panel-ink)_30%,transparent)] transition-[transform,box-shadow,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
           isSystem &&
             "border-[color-mix(in_srgb,var(--line)_72%,white)] bg-[color-mix(in_srgb,var(--accent-soft)_38%,white)]",
           !isSystem &&
@@ -895,6 +1138,8 @@ function MessageBubble({
             "border-[color-mix(in_srgb,var(--line)_74%,white)] bg-white",
           isAgent &&
             "border-[color-mix(in_srgb,var(--accent-soft)_85%,white)] bg-[color-mix(in_srgb,var(--accent-soft)_62%,white)]",
+          isFresh &&
+            "border-[color-mix(in_srgb,var(--panel-ink)_18%,var(--accent-soft))] shadow-[0_28px_65px_-36px_color-mix(in_srgb,var(--panel-ink)_36%,transparent)]",
         )}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
